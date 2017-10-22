@@ -1,0 +1,41 @@
+version: '1.0'
+
+steps:
+
+  multistage_build:
+    type: build
+    description: create workflow-controller image with multi-stage build
+    dockerfile: Dockerfile
+    working_directory: ${{main_clone}}
+    image_name: codefresh/workflow-controller
+    build_arguments:
+      - VCS_COMMIT_ID=${{CF_REVISION}}
+      - VCS_BRANCH_NAME=${{CF_BRANCH}}
+      - VCS_SLUG=${{CF_REPO_OWNER}}/${{CF_REPO_NAME}}
+      - CI_BUILD_ID=${{CF_BUILD_ID}}
+      - CI_BUILD_URL=${{CF_BUILD_URL}}
+      - CODECOV_TOKEN=${{CODECOV_TOKEN}}
+      # temporary solution till Codecov fix find argumnents bug in codecov.io/bash
+      - CODECOV_BASH_URL=https://raw.githubusercontent.com/codecov/codecov-bash/master/codecov
+
+  dockerhub_push:
+    type: push
+    candidate: ${{multistage_build}}
+    tag: latest
+    # Condition to run the step
+
+  e2e_test_build:
+    type: build
+    description: create workflow-controller e2e test image with multi-stage build
+    dockerfile: Dockerfile.e2e
+    working_directory: ${{main_clone}}
+    image_name: workflow-controller:e2e
+    
+  e2e_test:
+    image: ${{e2e_test_build}}
+    commands: 
+      - echo -n ${{KUBE_CONFIG}} > /root/.kube/config
+      - helm update --install --wait --namespace end2end-test charts/workflow-controller --set image.account=codefresh
+      - while [ $(kubectl get pod --selector=app=workflow-controller --all-namespaces | grep 'workflow-controller' | awk '{print $4}') != "Running" ]; do echo "$(kubectl get pod --selector=app=workflow-controller --all-namespaces)"; sleep 5; done
+      - e2e.test --kubeconfig=/root/.kube/config --ginkgo.slowSpecThreshold 30
+      - helm delete --purge end2end-test

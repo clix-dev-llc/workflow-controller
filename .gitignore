@@ -40,4 +40,5 @@ workflow-controller
 Session.vim
 .netrwhist
 
-coverage.txt
+# coverage reports
+.cover/
